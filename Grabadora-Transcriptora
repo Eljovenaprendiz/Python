@@ -120,23 +120,33 @@ def transcribir():
     
     if archivo!="":
         try:
-            
+            print("1")
             result = model.transcribe(archivo, language=f"{actual_language}", fp16=False, verbose=True)
+            print("2")
+            #print(result["text"])
             
-            print(result["text"])
-            
-                # Set some initial options values
+            # Set some initial options values
             options = {
                 'max_line_width': None,
                 'max_line_count': None,
                 'highlight_words': False
             }
+            print("3")
             
-            #vtt_writer=open("salida.vtt","w")
-            #vtt_writer = get_writer("vtt", str(directorio_actual))
-            #vtt_writer(result, archivo, options)
-            #vtt_writer.close()
+            actual_status.set("Guardando... srt")
+            # Save as an SRT file
+            srt_writer = get_writer("srt", f"{directorio_actual}")
+            srt_writer(result["text"], archivo)
 
+            #actual_status.set("Guardando... vtt")
+            # Save as a VTT file
+            #vtt_writer = get_writer("vtt", f"{directorio_actual}")
+            #vtt_writer(result["text"], archivo)
+            #print("4")
+
+            print(result["text"])
+           
+            actual_status.set("Stop") 
         except Exception as e:
             actual_status.set("¡Error!")
             logging.error('Error at %s', 'division', exc_info=e)
