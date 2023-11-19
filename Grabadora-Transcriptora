@@ -1,0 +1,282 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+from tkinter import Tk,Label,Button,filedialog,Entry,StringVar,messagebox, ttk
+import glob
+import pyaudio
+import os
+import wave
+import threading
+import whisper
+from whisper.utils import get_writer
+import torch
+import numpy as np
+import pandas as pd
+import logging
+from textblob import TextBlob
+from textblob.exceptions import MissingCorpusError
+#from pydub import AudioSegment
+#from io import BytesIO
+
+def clear_contador():
+    global contador,contador1,contador2
+    contador=0
+    contador1=0
+    contador2=0
+
+def dire():
+    directorio_actual.set(os.getcwd())
+
+def iniciar():
+    global grabando
+    global proceso
+    global act_proceso
+    global actual_status
+    
+    clear_contador()
+    audio=pyaudio.PyAudio()
+    bloqueo('disabled')
+    grabando=True
+    FORMAT=pyaudio.paInt16
+    CHANNELS=1
+    RATE=44100
+    act_proceso=True
+    archivo="grabacion.mp3"
+    t1=threading.Thread(target=grabacion, args=(FORMAT,CHANNELS,RATE,CHUNK,audio,archivo))
+    t=threading.Thread(target=cuenta)
+    t1.start()
+    t.start()
+    actual_status.set("En espera...")
+
+def formato(c):
+    if c<10:
+        c="0"+str(c)
+    return c
+    
+def cuenta():
+    global proceso
+    global contador,contador1,contador2
+    time['text'] = str(formato(contador1))+":"+str(formato(contador2))+":"+str(formato(contador))
+    contador+=1
+    if contador==60:
+        contador=0
+        contador2+=1
+    if contador2==60:
+        contador2=0
+        contador1+=1
+    proceso=time.after(1000, cuenta)
+
+def abrir():
+    global data
+    global stream
+    global f
+    global reproduciendo
+    global actual_status
+    
+    clear_contador()
+    audio=pyaudio.PyAudio()
+    open_archive=filedialog.askopenfilename(initialdir = "./",
+                 title = "Seleccione archivo",filetypes = (("wav files","*.wav"),("mp3 files","*.mp3"),
+                 ("all files","*.*")))
+    if open_archive!="":
+        try:
+            reproduciendo=True
+            actual_status.set("Reproduciendo")
+            f = wave.open(open_archive,"rb")
+            stream = audio.open(format = audio.get_format_from_width(f.getsampwidth()),  
+                        channels = f.getnchannels(),  
+                        rate = f.getframerate(),
+                        output = True)
+            data = f.readframes(CHUNK)
+            bloqueo('disabled')
+            t=threading.Thread(target=cuenta)
+            t.start()
+            t2=threading.Thread(target=reproduce)
+            t2.start()
+        except:
+            messagebox.showwarning("ERROR","No se pudo abrir al archivo especificado")
+            reproduciendo=False
+            
+def transcribir():
+    global data
+    global stream
+    global f
+    global actual_status
+    
+    actual_language=combo.get()
+    actual_status.set("Transcribiendo")
+    archivo=filedialog.askopenfilename(initialdir = "./",
+                 title = "Seleccione archivo",filetypes = (("all files","*.*"),("mp3 files","*.mp3"),
+                 ("wav files","*.wav")))
+    
+    actual_status.set("Transcribiendo...")
+    actual_status.set(f"Idioma elegido... {actual_language}")
+    print(f"Idioma elegido... {actual_language}")
+    
+    torch.cuda.is_available()
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    model = whisper.load_model("medium")
+    actual_status.set("Transcribiendo......")
+    
+    if archivo!="":
+        try:
+            
+            result = model.transcribe(archivo, language=f"{actual_language}", fp16=False, verbose=True)
+            
+            print(result["text"])
+            
+                # Set some initial options values
+            options = {
+                'max_line_width': None,
+                'max_line_count': None,
+                'highlight_words': False
+            }
+            
+            #vtt_writer=open("salida.vtt","w")
+            #vtt_writer = get_writer("vtt", str(directorio_actual))
+            #vtt_writer(result, archivo, options)
+            #vtt_writer.close()
+
+        except Exception as e:
+            actual_status.set("¡Error!")
+            logging.error('Error at %s', 'division', exc_info=e)
+            #messagebox.showwarning("ERROR","No se pudo transcribir archivo especificado")
+
+def reproduce():
+    global data
+    global stream
+    global f
+    global actual_status
+    
+    while data and reproduciendo==True:  
+        stream.write(data)  
+        data = f.readframes(CHUNK)  
+ 
+    stream.stop_stream()  
+    stream.close()  
+    actual_status.set("Stop")
+ 
+    audio.terminate()
+    time.after_cancel(proceso)
+    #print("FIN")
+    bloqueo('normal')
+
+def bloqueo(s):
+    btnIniciar.config(state=s)
+    btnDir.config(state=s)
+    btnAbrir.config(state=s)
+    
+def parar():
+    global grabando
+    global reproduciendo
+    global actual_status
+    
+    if grabando==True:
+        grabando=False
+        actual_status.set("Stop")
+        time.after_cancel(proceso)
+        clear_contador()
+    elif reproduciendo==True:
+        reproduciendo=False
+        actual_status.set("Stop")
+    bloqueo('normal')
+
+def direc():
+    directorio=filedialog.askdirectory()
+    if directorio!="":
+        os.chdir(directorio)
+        dire()
+
+def grabacion(FORMAT,CHANNELS,RATE,CHUNK,audio,archivo):
+    global actual_status
+    
+    stream=audio.open(format=FORMAT,channels=CHANNELS,
+                          rate=RATE, input=True,
+                          frames_per_buffer=CHUNK)
+
+    frames=[]
+
+    #print("GRABANDO")
+    while grabando==True:
+        data=stream.read(CHUNK)
+        frames.append(data)
+        actual_status.update('Grabando')
+    #print("fin")
+
+    #DETENEMOS GRABACIÓN
+    stream.stop_stream()
+    stream.close()
+    audio.terminate()
+
+    grabs = glob.glob('*.mp3')
+
+    #CREAMOS/GUARDAMOS EL ARCHIVO DE AUDIO
+    count=0
+    for i in grabs:
+        if "grabacion" in i:
+            count+=1
+    if count>0:
+        archivo="grabacion"+"("+str(count)+")"+".mp3"
+        
+    waveFile = wave.open("./"+archivo, 'wb')
+    waveFile.setnchannels(CHANNELS)
+    waveFile.setsampwidth(audio.get_sample_size(FORMAT))
+    waveFile.setframerate(RATE)
+    waveFile.writeframes(b''.join(frames))
+    waveFile.close()
+    
+
+#CREAR VENTANA
+ventana = Tk()
+ventana.title('Grabadora Audio')
+
+#VARIABLES INICIALES
+directorio_actual=StringVar()
+grabando=False
+reproduciendo=False
+CHUNK=1024
+data=""
+stream=""
+audio=pyaudio.PyAudio() 
+f=""
+actual_status=StringVar()
+languages = ["afrikaans", "arabic", "armenian", "azerbaijani", "belarusian", "bosnian", "bulgarian", "catalan", 
+             "chinese", "croatian", "czech", "danish", "dutch", "english", "estonian", "finnish", "french", 
+             "galician", "german", "greek", "hebrew", "hindi", "hungarian", "icelandic", "indonesian", "italian", 
+             "japanese", "kannada", "kazakh", "korean", "latvian", "lithuanian", "macedonian", "malay", "marathi", 
+             "maori", "nepali", "norwegian", "persian", "polish", "portuguese", "romanian", "russian", "serbian", 
+             "slovak", "slovenian", "spanish", "swahili", "swedish", "tagalog", "tamil", "thai", "turkish", 
+             "ukrainian", "urdu", "vietnamese", "welsh"]
+combo = ttk.Combobox(ventana, state="readonly", values= languages)
+
+
+#CONTADOR DE TIEMPO
+time = Label(ventana, fg='green', width=20, text="00:00:00", bg="black", font=("","30"))
+time.place(x=10,y=20)
+ventana.geometry("480x150")
+
+#BOTONES 
+btnIniciar=Button(ventana, fg='blue',width=11, text='Grabar', command=iniciar)
+btnIniciar.place(x=100,y=71)
+btnParar=Button(ventana, fg='blue', width=11, text='Parar', command=parar)
+btnParar.place(x=190,y=71)
+btnDir=Button(ventana, text="Carpeta",width=11,command=direc)
+btnDir.place(x=10,y=71)
+btnAbrir=Button(ventana, text="Abrir",width=11,command=abrir)
+btnAbrir.place(x=280,y=71)
+btnTranscribir=Button(ventana, text="Transcribir",width=11,command=transcribir)
+btnTranscribir.place(x=370,y=71)
+
+etDir=Entry(ventana,width=77,bg="lavender",textvariable=directorio_actual)
+etDir.place(x=10,y=0)
+
+status=Entry(ventana,width=77,bg="lavender",textvariable=actual_status)
+status.place(x=10,y=100)
+
+
+combo.set('spanish')
+combo.place(x=160, y=120)
+
+dire()
+
+ventana.mainloop()
