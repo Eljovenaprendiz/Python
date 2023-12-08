@@ -202,7 +202,7 @@ def grabacion(FORMAT,CHANNELS,RATE,CHUNK,audio,archivo):
     
     stream=audio.open(format=FORMAT,channels=CHANNELS,
                           rate=RATE, input=True,
-                          frames_per_buffer=CHUNK)
+                          frames_per_buffer=CHUNK, as_loopback = True)
 
     frames=[]
 
