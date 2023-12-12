@@ -101,6 +101,7 @@ def transcribir():
     global stream
     global f
     global actual_status
+    global directorio_actual
     
     actual_language=combo.get()
     actual_status.set("Transcribiendo")
@@ -122,30 +123,19 @@ def transcribir():
         try:
             print("1")
             result = model.transcribe(archivo, language=f"{actual_language}", fp16=False, verbose=True)
-            print("2")
-            #print(result["text"])
             
-            # Set some initial options values
-            options = {
-                'max_line_width': None,
-                'max_line_count': None,
-                'highlight_words': False
-            }
-            print("3")
+            segments = result["segments"]
+            largo=len(segments)
             
-            actual_status.set("Guardando... srt")
-            # Save as an SRT file
-            srt_writer = get_writer("srt", f"{directorio_actual}")
-            srt_writer(result["text"], archivo)
-
-            #actual_status.set("Guardando... vtt")
-            # Save as a VTT file
-            #vtt_writer = get_writer("vtt", f"{directorio_actual}")
-            #vtt_writer(result["text"], archivo)
-            #print("4")
-
-            print(result["text"])
-           
+            texto_segment = result["segments"][0]["text"]
+            
+            nombre = archivo[:-4]
+            
+            with open('{}.txt'.format(nombre), 'w') as fid:
+                for segment in range(0,largo):
+                    fid.write(result["segments"][segment]["text"])
+                    fid.write("\n")    
+            
             actual_status.set("Stop") 
         except Exception as e:
             actual_status.set("¡Error!")
@@ -202,7 +192,7 @@ def grabacion(FORMAT,CHANNELS,RATE,CHUNK,audio,archivo):
     
     stream=audio.open(format=FORMAT,channels=CHANNELS,
                           rate=RATE, input=True,
-                          frames_per_buffer=CHUNK, as_loopback = True)
+                          frames_per_buffer=CHUNK)
 
     frames=[]
 
@@ -210,7 +200,7 @@ def grabacion(FORMAT,CHANNELS,RATE,CHUNK,audio,archivo):
     while grabando==True:
         data=stream.read(CHUNK)
         frames.append(data)
-        actual_status.update('Grabando')
+        actual_status.set('Grabando')
     #print("fin")
 
     #DETENEMOS GRABACIÓN
