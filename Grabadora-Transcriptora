@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from tkinter import Tk,Label,Button,filedialog,Entry,StringVar,messagebox, ttk
+from tkinter import Tk,Label,Button,filedialog,Entry,StringVar,messagebox, ttk, simpledialog
 import glob
-import pyaudio
+import pyaudiowpatch as pyaudio
 import os
 import wave
 import threading
@@ -14,217 +14,331 @@ import pandas as pd
 import logging
 from textblob import TextBlob
 from textblob.exceptions import MissingCorpusError
+from sumy.parsers.plaintext import PlaintextParser
+from sumy.nlp.tokenizers import Tokenizer
+from sumy.summarizers.lsa import LsaSummarizer
+from sumy.nlp.stemmers import Stemmer
+from sumy.utils import get_stop_words
+
 #from pydub import AudioSegment
 #from io import BytesIO
 
 def clear_contador():
-    global contador,contador1,contador2
-    contador=0
-    contador1=0
-    contador2=0
+    global contador,contador1,contador2
+    contador=0
+    contador1=0
+    contador2=0
 
 def dire():
-    directorio_actual.set(os.getcwd())
+    directorio_actual.set(os.getcwd())
 
 def iniciar():
-    global grabando
-    global proceso
-    global act_proceso
-    global actual_status
-    
-    clear_contador()
-    audio=pyaudio.PyAudio()
-    bloqueo('disabled')
-    grabando=True
-    FORMAT=pyaudio.paInt16
-    CHANNELS=1
-    RATE=44100
-    act_proceso=True
-    archivo="grabacion.mp3"
-    t1=threading.Thread(target=grabacion, args=(FORMAT,CHANNELS,RATE,CHUNK,audio,archivo))
-    t=threading.Thread(target=cuenta)
-    t1.start()
-    t.start()
-    actual_status.set("En espera...")
+    global grabando
+    global proceso
+    global act_proceso
+    global actual_status
+    
+    clear_contador()
+    audio=pyaudio.PyAudio()
+    bloqueo('disabled')
+    grabando=True
+    FORMAT=pyaudio.paInt16
+    CHANNELS=1
+    RATE=44100
+    act_proceso=True
+    archivo="grabacion.mp3"
+    t1=threading.Thread(target=grabacion, args=(FORMAT,CHANNELS,RATE,CHUNK,audio,archivo))
+    t=threading.Thread(target=cuenta)
+    t1.start()
+    t.start()
+    actual_status.set("En espera...")
 
 def formato(c):
-    if c<10:
-        c="0"+str(c)
-    return c
-    
+    if c<10:
+        c="0"+str(c)
+    return c
+    
 def cuenta():
-    global proceso
-    global contador,contador1,contador2
-    time['text'] = str(formato(contador1))+":"+str(formato(contador2))+":"+str(formato(contador))
-    contador+=1
-    if contador==60:
-        contador=0
-        contador2+=1
-    if contador2==60:
-        contador2=0
-        contador1+=1
-    proceso=time.after(1000, cuenta)
+    global proceso
+    global contador,contador1,contador2
+    time['text'] = str(formato(contador1))+":"+str(formato(contador2))+":"+str(formato(contador))
+    contador+=1
+    if contador==60:
+        contador=0
+        contador2+=1
+    if contador2==60:
+        contador2=0
+        contador1+=1
+    proceso=time.after(1000, cuenta)
 
 def abrir():
-    global data
-    global stream
-    global f
-    global reproduciendo
-    global actual_status
-    
-    clear_contador()
-    audio=pyaudio.PyAudio()
-    open_archive=filedialog.askopenfilename(initialdir = "./",
-                 title = "Seleccione archivo",filetypes = (("wav files","*.wav"),("mp3 files","*.mp3"),
-                 ("all files","*.*")))
-    if open_archive!="":
-        try:
-            reproduciendo=True
-            actual_status.set("Reproduciendo")
-            f = wave.open(open_archive,"rb")
-            stream = audio.open(format = audio.get_format_from_width(f.getsampwidth()),  
-                        channels = f.getnchannels(),  
-                        rate = f.getframerate(),
-                        output = True)
-            data = f.readframes(CHUNK)
-            bloqueo('disabled')
-            t=threading.Thread(target=cuenta)
-            t.start()
-            t2=threading.Thread(target=reproduce)
-            t2.start()
-        except:
-            messagebox.showwarning("ERROR","No se pudo abrir al archivo especificado")
-            reproduciendo=False
-            
+    global data
+    global stream
+    global f
+    global reproduciendo
+    global actual_status
+    
+    clear_contador()
+    audio=pyaudio.PyAudio()
+    open_archive=filedialog.askopenfilename(initialdir = "./",
+                 title = "Seleccione archivo",filetypes = (("wav files","*.wav"),("mp3 files","*.mp3"),
+                 ("all files","*.*")))
+    if open_archive!="":
+        try:
+            reproduciendo=True
+            actual_status.set("Reproduciendo")
+            f = wave.open(open_archive,"rb")
+            stream = audio.open(format = audio.get_format_from_width(f.getsampwidth()),  
+                        channels = f.getnchannels(),  
+                        rate = f.getframerate(),
+                        output = True)
+            data = f.readframes(CHUNK)
+            bloqueo('disabled')
+            t=threading.Thread(target=cuenta)
+            t.start()
+            t2=threading.Thread(target=reproduce)
+            t2.start()
+        except:
+            messagebox.showwarning("ERROR","No se pudo abrir al archivo especificado")
+            reproduciendo=False
+            
 def transcribir():
-    global data
-    global stream
-    global f
-    global actual_status
-    global directorio_actual
-    
-    actual_language=combo.get()
-    actual_status.set("Transcribiendo")
-    archivo=filedialog.askopenfilename(initialdir = "./",
-                 title = "Seleccione archivo",filetypes = (("all files","*.*"),("mp3 files","*.mp3"),
-                 ("wav files","*.wav")))
-    
-    actual_status.set("Transcribiendo...")
-    actual_status.set(f"Idioma elegido... {actual_language}")
-    print(f"Idioma elegido... {actual_language}")
-    
-    torch.cuda.is_available()
-    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    
-    model = whisper.load_model("medium")
-    actual_status.set("Transcribiendo......")
-    
-    if archivo!="":
-        try:
-            print("1")
-            result = model.transcribe(archivo, language=f"{actual_language}", fp16=False, verbose=True)
-            
-            segments = result["segments"]
-            largo=len(segments)
-            
-            texto_segment = result["segments"][0]["text"]
-            
-            nombre = archivo[:-4]
-            
-            with open('{}.txt'.format(nombre), 'w') as fid:
-                for segment in range(0,largo):
-                    fid.write(result["segments"][segment]["text"])
-                    fid.write("\n")    
-            
-            actual_status.set("Stop") 
-        except Exception as e:
-            actual_status.set("¡Error!")
-            logging.error('Error at %s', 'division', exc_info=e)
-            #messagebox.showwarning("ERROR","No se pudo transcribir archivo especificado")
+    global data
+    global stream
+    global f
+    global actual_status
+    global directorio_actual
+    
+    actual_language=combo.get()
+    actual_status.set("Transcribiendo")
+    archivo=filedialog.askopenfilename(initialdir = "./",
+                 title = "Seleccione archivo",filetypes = (("all files","*.*"),("mp3 files","*.mp3"),
+                 ("wav files","*.wav")))
+    
+    actual_status.set("Transcribiendo...")
+    actual_status.set(f"Idioma elegido... {actual_language}")
+    print(f"Idioma elegido... {actual_language}")
+    
+    torch.cuda.is_available()
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    model = whisper.load_model("medium")
+    actual_status.set("Transcribiendo......")
+    
+    if archivo!="":
+        try:
+            print("1")
+            result = model.transcribe(archivo, language=f"{actual_language}", fp16=False, verbose=True)
+            
+            segments = result["segments"]
+            largo=len(segments)
+            
+            texto_segment = result["segments"][0]["text"]
+            
+            nombre = archivo[:-4]
+            
+            with open('{}.txt'.format(nombre), 'w') as fid:
+                for segment in range(0,largo):
+                    fid.write(result["segments"][segment]["text"])
+                    fid.write("\n")    
+            
+            actual_status.set("Stop") 
+        except Exception as e:
+            actual_status.set("¡Error!")
+            logging.error('Error at %s', 'division', exc_info=e)
+            #messagebox.showwarning("ERROR","No se pudo transcribir archivo especificado")
+            
+def resumir():
+    # Seleccionar archivo
+    root = Tk()
+    root.withdraw()  # Ocultar la ventana principal
+    archivo_seleccionado = filedialog.askopenfilename(
+        title="Selecciona un archivo de texto",
+        filetypes=(("Archivos de texto", "*.txt"), ("Todos los archivos", "*.*"))
+    )
+    
+    if archivo_seleccionado:
+        # Selección de idioma
+        idiomas = ["english", "french", "spanish", "german", "italian", "portuguese", "russian"]
+        idioma_seleccionado = simpledialog.askstring("Idioma", "Seleccione el idioma del texto:", initialvalue="spanish")
+
+        if idioma_seleccionado not in idiomas:
+            print(f"Idioma '{idioma_seleccionado}' no soportado.")
+            return
+
+        # Leer archivo
+        with open(archivo_seleccionado, 'r', encoding='utf-8') as archivo:
+            contenido = archivo.read()
+
+        # Generar resumen
+        parser = PlaintextParser.from_string(contenido, Tokenizer(idioma_seleccionado))
+        stemmer = Stemmer(idioma_seleccionado)
+        summarizer = LsaSummarizer(stemmer)
+        summarizer.stop_words = get_stop_words(idioma_seleccionado)
+        num_sentencias = 5  # Puedes ajustar este valor según sea necesario
+        resumen = summarizer(parser.document, num_sentencias)
+        resumen_texto = " ".join([str(sentence) for sentence in resumen])
+
+        # Guardar resumen
+        ruta_resumen = filedialog.asksaveasfilename(
+            title="Guardar resumen como",
+            defaultextension=".txt",
+            filetypes=(("Archivos de texto", "*.txt"), ("Todos los archivos", "*.*"))
+        )
+        
+        if ruta_resumen:
+            with open(ruta_resumen, 'w', encoding='utf-8') as archivo:
+                archivo.write(resumen_texto)
+            print(f"Resumen guardado en: {ruta_resumen}")
+        else:
+            print("No se ha especificado una ruta para guardar el resumen.")
+    else:
+        print("No se ha seleccionado ningún archivo.")
 
 def reproduce():
-    global data
-    global stream
-    global f
-    global actual_status
-    
-    while data and reproduciendo==True:  
-        stream.write(data)  
-        data = f.readframes(CHUNK)  
- 
-    stream.stop_stream()  
-    stream.close()  
-    actual_status.set("Stop")
- 
-    audio.terminate()
-    time.after_cancel(proceso)
-    #print("FIN")
-    bloqueo('normal')
+    global data
+    global stream
+    global f
+    global actual_status
+    
+    while data and reproduciendo==True:  
+        stream.write(data)  
+        data = f.readframes(CHUNK)  
+ 
+    stream.stop_stream()  
+    stream.close()  
+    actual_status.set("Stop")
+ 
+    audio.terminate()
+    time.after_cancel(proceso)
+    #print("FIN")
+    bloqueo('normal')
 
 def bloqueo(s):
-    btnIniciar.config(state=s)
-    btnDir.config(state=s)
-    btnAbrir.config(state=s)
-    
+    btnIniciar.config(state=s)
+    btnDir.config(state=s)
+    btnAbrir.config(state=s)
+    
 def parar():
-    global grabando
-    global reproduciendo
-    global actual_status
-    
-    if grabando==True:
-        grabando=False
-        actual_status.set("Stop")
-        time.after_cancel(proceso)
-        clear_contador()
-    elif reproduciendo==True:
-        reproduciendo=False
-        actual_status.set("Stop")
-    bloqueo('normal')
+    global grabando
+    global reproduciendo
+    global actual_status
+    
+    if grabando==True:
+        grabando=False
+        actual_status.set("Stop")
+        time.after_cancel(proceso)
+        clear_contador()
+    elif reproduciendo==True:
+        reproduciendo=False
+        actual_status.set("Stop")
+    bloqueo('normal')
 
 def direc():
-    directorio=filedialog.askdirectory()
-    if directorio!="":
-        os.chdir(directorio)
-        dire()
+    directorio=filedialog.askdirectory()
+    if directorio!="":
+        os.chdir(directorio)
+        dire()
 
 def grabacion(FORMAT,CHANNELS,RATE,CHUNK,audio,archivo):
-    global actual_status
-    
-    stream=audio.open(format=FORMAT,channels=CHANNELS,
-                          rate=RATE, input=True,
-                          frames_per_buffer=CHUNK)
+    global actual_status
+    print("wasapi_info")
+    try:
+        wasapi_info = pyaudio.PyAudio.get_host_api_info_by_type(pyaudio.paWASAPI)
+        print(wasapi_info)
+        
+    except OSError as e:
+        actual_status.set("¡Error!")
+        logging.error('Error at %s', 'division', exc_info=e)
+    
+    #choosing the speaker device
+    print("wasapi_info[defaultOutputDevice]")
+    print(wasapi_info["defaultOutputDevice"]) 
+    default_speakers=pyaudio.PyAudio.get_device_info_by_index(wasapi_info["defaultOutputDevice"])
+    
+    if not default_speakers["isLoopbackDevice"]:
+                for loopback in pyaudio.PyAudio.get_loopback_device_info_generator():
+                    if default_speakers["name"] in loopback["name"]:
+                        default_speakers = loopback
+                        break
+                else:
+                    print("[ERROR] No loopback device found.") 
+    
+    print(default_speakers)
+    
+    stream_micro=audio.open(format=FORMAT,channels=CHANNELS,
+                          rate=RATE, input=True, output=True,
+                          frames_per_buffer=CHUNK)
+    
+    stream_altavoz=audio.open(format=FORMAT,channels=CHANNELS,
+                          rate=RATE, input=True,
+                          frames_per_buffer=CHUNK,
+                          input_device_index=default_speakers)
 
-    frames=[]
+    frames=[]
+    frames1=[]
 
-    #print("GRABANDO")
-    while grabando==True:
-        data=stream.read(CHUNK)
-        frames.append(data)
-        actual_status.set('Grabando')
-    #print("fin")
+    #print("GRABANDO")
+    while grabando==True:
+        data=stream_micro.read(CHUNK)
+        frames.append(data)
+        data1=stream_altavoz.read(CHUNK)
+        frames1.append(data1)
+        actual_status.set('Grabando')
+    #print("fin")
+    
+    # frames = datos de sonido as_loopback (altavoces)
+    frames = b''.join(frames)
 
-    #DETENEMOS GRABACIÓN
-    stream.stop_stream()
-    stream.close()
-    audio.terminate()
+    # frames2 = datos de sonido del altavoz
+    frames1 = b''.join(frames1)
 
-    grabs = glob.glob('*.mp3')
+    # decodificación de datos del microfono
+    Sdecoded = np.frombuffer(frames, 'int16')
 
-    #CREAMOS/GUARDAMOS EL ARCHIVO DE AUDIO
-    count=0
-    for i in grabs:
-        if "grabacion" in i:
-            count+=1
-    if count>0:
-        archivo="grabacion"+"("+str(count)+")"+".mp3"
-        
-    waveFile = wave.open("./"+archivo, 'wb')
-    waveFile.setnchannels(CHANNELS)
-    waveFile.setsampwidth(audio.get_sample_size(FORMAT))
-    waveFile.setframerate(RATE)
-    waveFile.writeframes(b''.join(frames))
-    waveFile.close()
-    
+    # decodificar los datos del altavoz
+    Mdecoded = np.frombuffer(frames1, 'int16')
+
+    # convertir los datos del microfono en un vector Numpy
+    Sdecoded = np.array(Sdecoded, dtype='int16')
+
+    # obtener los datos en el lado derecho
+    right = Sdecoded[1::2]
+
+    # obteniendo los datos en el lado izquierdo
+    left = Sdecoded[::2]
+
+    # mezclar todo a mono = agregar lado derecho + lado izquierdo + datos decodificados de micrófono que ya son mono
+    mix = (right + left + Mdecoded)
+
+    # asegurando que ningún valor va más allá de los límites de short int
+    signal = np.clip(mix, -32767, 32766)
+
+    # codificar los datos nuevamente
+    encoded = wave.struct.pack("%dh" % (len(signal)), *list(signal))
+
+    #DETENEMOS GRABACIÓN
+    stream.stop_stream()
+    stream.close()
+    audio.terminate()
+
+    grabs = glob.glob('*.mp3')
+
+    #CREAMOS/GUARDAMOS EL ARCHIVO DE AUDIO
+    count=0
+    for i in grabs:
+        if "grabacion" in i:
+            count+=1
+    if count>0:
+        archivo="grabacion"+"("+str(count)+")"+".mp3"
+        
+    waveFile = wave.open("./"+archivo, 'wb')
+    waveFile.setnchannels(CHANNELS)
+    waveFile.setsampwidth(audio.get_sample_size(FORMAT))
+    waveFile.setframerate(RATE)
+    waveFile.writeframes(b''.join(frames))
+    waveFile.close()
+    
 
 #CREAR VENTANA
 ventana = Tk()
@@ -241,12 +355,12 @@ audio=pyaudio.PyAudio()
 f=""
 actual_status=StringVar()
 languages = ["afrikaans", "arabic", "armenian", "azerbaijani", "belarusian", "bosnian", "bulgarian", "catalan", 
-             "chinese", "croatian", "czech", "danish", "dutch", "english", "estonian", "finnish", "french", 
-             "galician", "german", "greek", "hebrew", "hindi", "hungarian", "icelandic", "indonesian", "italian", 
-             "japanese", "kannada", "kazakh", "korean", "latvian", "lithuanian", "macedonian", "malay", "marathi", 
-             "maori", "nepali", "norwegian", "persian", "polish", "portuguese", "romanian", "russian", "serbian", 
-             "slovak", "slovenian", "spanish", "swahili", "swedish", "tagalog", "tamil", "thai", "turkish", 
-             "ukrainian", "urdu", "vietnamese", "welsh"]
+             "chinese", "croatian", "czech", "danish", "dutch", "english", "estonian", "finnish", "french", 
+             "galician", "german", "greek", "hebrew", "hindi", "hungarian", "icelandic", "indonesian", "italian", 
+             "japanese", "kannada", "kazakh", "korean", "latvian", "lithuanian", "macedonian", "malay", "marathi", 
+             "maori", "nepali", "norwegian", "persian", "polish", "portuguese", "romanian", "russian", "serbian", 
+             "slovak", "slovenian", "spanish", "swahili", "swedish", "tagalog", "tamil", "thai", "turkish", 
+             "ukrainian", "urdu", "vietnamese", "welsh"]
 combo = ttk.Combobox(ventana, state="readonly", values= languages)
 
 
@@ -266,6 +380,8 @@ btnAbrir=Button(ventana, text="Abrir",width=11,command=abrir)
 btnAbrir.place(x=280,y=71)
 btnTranscribir=Button(ventana, text="Transcribir",width=11,command=transcribir)
 btnTranscribir.place(x=370,y=71)
+btnDir=Button(ventana, text="Resumir",width=11, command=resumir)
+btnDir.place(x=10,y=120)
 
 etDir=Entry(ventana,width=77,bg="lavender",textvariable=directorio_actual)
 etDir.place(x=10,y=0)
