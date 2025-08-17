@@ -1,0 +1,128 @@
+#pip install transformers torch sentencepiece
+#pip install python-docx PyMuPDF
+#pip install transformers torch sentencepiece python-docx PyMuPDF
+
+import os
+import docx  # Para archivos .docx
+import fitz  # PyMuPDF para archivos .pdf
+from IPython.display import display, Markdown
+# Importamos la clase 'pipeline', que es la forma más sencilla de usar modelos pre-entrenados
+from transformers import pipeline
+
+# Creamos nuestro pipeline de análisis
+# Tarea: "text-classification" para clasificar texto
+# Modelo: uno especializado en emociones en español
+# return_all_scores=True nos mostrará la puntuación para cada una de las 6 emociones
+emotion_pipeline = pipeline(
+    "text-classification",
+    model="pysentimiento/robertuito-emotion-analysis",
+    return_all_scores=True
+)
+
+print("✅ Modelo cargado y listo para usar.")
+
+# --- FUNCIÓN 1: Extraer texto de .docx ---
+def extraer_texto_de_docx(ruta_archivo):
+    try:
+        documento = docx.Document(ruta_archivo)
+        return "\n".join([p.text for p in documento.paragraphs])
+    except Exception as e:
+        print(f"❌ Error al leer el archivo DOCX: {e}")
+        return None
+
+# --- FUNCIÓN 2: Extraer texto de .pdf ---
+def extraer_texto_de_pdf(ruta_archivo):
+    try:
+        with fitz.open(ruta_archivo) as doc:
+            return "".join([pagina.get_text() for pagina in doc])
+    except Exception as e:
+        print(f"❌ Error al leer el archivo PDF: {e}")
+        return None
+
+# --- FUNCIÓN 3: Analizar el texto y mostrar el resultado ---
+def analizar_y_mostrar_emocion(texto):
+    """
+    Toma un bloque de texto, lo analiza y muestra la emoción principal.
+    Si la emoción principal es 'others', también muestra la siguiente más probable.
+    """
+    if not texto or not texto.strip():
+        print("⚠️ El texto está vacío, no hay nada que analizar.")
+        return
+
+    print("\n🧠 Analizando...")
+    resultado_completo = emotion_pipeline(texto, truncation=True)[0]
+    
+    # Ordenamos todas las emociones detectadas de mayor a menor confianza
+    emociones_ordenadas = sorted(resultado_completo, key=lambda x: x['score'], reverse=True)
+    
+    # La emoción principal es la primera de la lista
+    emocion_principal = emociones_ordenadas[0]
+    etiqueta_principal = emocion_principal['label']
+    puntuacion_principal = emocion_principal['score']
+    
+    emoji_map = {
+        'joy': '😊 Alegría', 'anger': '😡 Ira', 'fear': '😨 Miedo',
+        'surprise': '😮 Sorpresa', 'sadness': '😢 Tristeza', 'disgust': '🤢 Asco',
+        'others': '😐 Neutral / Otra'
+    }
+
+    # Mostramos el resultado principal
+    display(Markdown(f"## ✨ Emoción Principal Detectada: **{emoji_map.get(etiqueta_principal, etiqueta_principal)}**"))
+    display(Markdown(f"#### Confianza del modelo: **{puntuacion_principal:.2%}**"))
+
+    # Si la emoción principal es 'others' y hay más de una emoción detectada,
+    # mostramos la segunda más probable para tener más contexto.
+    if etiqueta_principal == 'others' and len(emociones_ordenadas) > 1:
+        emocion_secundaria = emociones_ordenadas[1]
+        etiqueta_secundaria = emocion_secundaria['label']
+        puntuacion_secundaria = emocion_secundaria['score']
+        
+        display(Markdown(f"### Emoción Subyacente más probable: **{emoji_map.get(etiqueta_secundaria, etiqueta_secundaria)}** ({puntuacion_secundaria:.2%})"))
+
+
+while True:
+    # 1. Imprimir el menú de opciones
+    print("\n" + "="*50)
+    print("🤖 ¿Qué te gustaría hacer?")
+    print("1. Introducir un texto manualmente")
+    print("2. Analizar un archivo (.docx o .pdf)")
+    print("3. Salir del programa")
+    print("="*50)
+
+    # 2. Pedir la elección al usuario
+    eleccion = input("Elige una opción (1, 2 o 3): ")
+
+    # 3. Procesar la elección
+    if eleccion == '1':
+        # Opción para texto manual
+        texto_manual = input("\n📝 Pega o escribe el texto que quieres analizar:\n")
+        analizar_y_mostrar_emocion(texto_manual)
+
+    elif eleccion == '2':
+        # Opción para analizar archivo
+        ruta_archivo = input("\n📂 Introduce la ruta completa de tu archivo y presiona Enter: ").strip().strip('"')
+        
+        if not os.path.exists(ruta_archivo):
+            print(f"❌ Error: No se pudo encontrar el archivo en la ruta:\n'{ruta_archivo}'")
+            continue # Vuelve al inicio del bucle
+
+        # Extraer texto según la extensión
+        texto_extraido = None
+        if ruta_archivo.lower().endswith('.docx'):
+            texto_extraido = extraer_texto_de_docx(ruta_archivo)
+        elif ruta_archivo.lower().endswith('.pdf'):
+            texto_extraido = extraer_texto_de_pdf(ruta_archivo)
+        else:
+            print("⚠️ Formato no soportado. Por favor, elige un archivo .docx o .pdf.")
+            continue # Vuelve al inicio del bucle
+        
+        analizar_y_mostrar_emocion(texto_extraido)
+
+    elif eleccion == '3':
+        # Opción para salir
+        print("\n👋 ¡Hasta pronto! El programa ha finalizado.")
+        break # Rompe el bucle y termina la ejecución
+
+    else:
+        # Opción no válida
+        print("\n❌ Opción no válida. Por favor, introduce 1, 2 o 3.")
